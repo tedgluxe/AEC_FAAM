@@ -1,9 +1,11 @@
+################################################################################
 ### Airborne Eddy Covariance files preparation from FAAM aircraft data ###
 
 #Contributions from: Adam Vaughan, Freya Squires, Will Drysdale, Dominika Pasternak.
 
+################################################################################
+### Loading packages ###
 
-#load packages
 library(dplyr)
 library(magrittr)
 library(rgdal)
@@ -19,6 +21,7 @@ library(openair)
 library(reshape2)
 
 
+
 ################################################################################
 ### Initial setup ###
 
@@ -32,8 +35,10 @@ FGGA_10_files <- list.files("./fgga_10hz",pattern = ".na") # FGGA 10 Hz data (me
 FGGA_H2O_files <- list.files("./fgga_h2o",pattern = ".txt") # FGGA raw 10 Hz file (water vapour)
 thermistor_files <- list.files("./thermistor_16Hz",pattern = ".csv") # Thermistor 16 Hz files (temperature)
 
-#choose flight
+#choose flight and UTM zone
 flno <- 5
+zn <- "+proj=utm +zone=35" #UTM zones: Uganda 35, Zambia 36, Finland 35
+bl <- 800 #boundary layer in m (see inversions in profiles & choose minimal value)
 
 #get full flight number
 FLIGHT_num <- stringr::str_sub(FGGA_10_files, start= -7) %>% gsub(".na","",.)
@@ -51,248 +56,205 @@ rad_freq <-  1
 temp_freq <- 32
 
 
-# Uganda all 35, Zambia 36, Finland 35
-
-
-
 
 ################################################################################
-### loading core 32 Hz data ###
+### Loading core 32 Hz data ###
 
-#open
-core32 <- ncdf4::nc_open(paste0("./aimms_32hz/",
-                                core_32_files[grep(fn,core_32_files,ignore.case=TRUE)]))
+#open 32 Hz file
+core32 <- ncdf4::nc_open(paste0("./aimms_32hz/",core_32_files[grep(fn,core_32_files,ignore.case=TRUE)]))
 
-#create a list of variables that we want to select 
-eddyvars <- c("ROLL_GIN","PTCH_GIN", "U_C", "V_C", "W_C", "LAT_GIN", "LON_GIN","HDG_GIN","TAS", "PS_RVSM")
+#create a list of variables needed (exc. ones that don't load well from 32 Hz files)
+eddyvars <- c("ROLL_GIN", "U_C", "V_C", "W_C", "LAT_GIN", "LON_GIN","HDG_GIN","TAS", "PS_RVSM")
 
-#turn NetCDF into normal data frame
+#turn NetCDF into data frame
 for (i in 1:length(eddyvars)) {
   vname <- eddyvars[i]
   raw <- as.vector(ncdf4::ncvar_get(core32,vname,collapse_degen=FALSE))
   if(i==1){
-    AIMMS_32hz <- data.frame(raw)
-    names(AIMMS_32hz) <- vname
-  } else {
-    AIMMS_32hz <- cbind(AIMMS_32hz,raw)
-    names(AIMMS_32hz)[ncol(AIMMS_32hz)] <- vname
+    CORE_32Hz <- data.frame(raw)
+    names(CORE_32Hz) <- vname
+  } 
+  else {
+    CORE_32Hz <- cbind(CORE_32Hz,raw)
+    names(CORE_32Hz)[ncol(CORE_32Hz)] <- vname
   }
 }
-rm(i,raw,vname)
 
-#get time
+#get time and adjust frequency 
 core_time <- ncvar_get(core32, attributes(core32$dim)$names[1]) %>% as.vector()
 date <- strptime(x = origin, format ="%Y%m%d %H:%M") + (core_time)
-AIMMS_32hz$date <- base::as.POSIXct(seq.POSIXt(from = min(date)+(1/core_freq),
+CORE_32Hz$date <- base::as.POSIXct(seq.POSIXt(from = min(date)+(1/core_freq),
                                                to = max(date)+1, 
                                                by = 1/core_freq,
                                                tz = "UTC"))
 
-
-
 #tidy up
-rm( core32, date)
+rm(core32, date, core_time, i, raw, vname)
+
 
 
 ################################################################################
+### Loading core 1 Hz data ###
 
-#CORE 1Hz (based on the original code from now on)
+#open 1 Hz file
+core1 <- ncdf4::nc_open(paste0("./aimms_1hz/",core_01_files[grep(fn,core_01_files,ignore.case=TRUE)]))
 
-#open
-tmp_AIMMS <- ncdf4::nc_open(paste0("./aimms_1hz/",
-                                   core_01_files[grep(fn,core_01_files,ignore.case=TRUE)]))
+#create a list of variables needed
+eddyvars <- c("HGT_RADR")
 
-#get variables
-HGT_RADR <- as.vector(ncdf4::ncvar_get(tmp_AIMMS,"HGT_RADR",collapse_degen=FALSE))
-press <- as.vector(ncdf4::ncvar_get(tmp_AIMMS,"PS_RVSM",collapse_degen=FALSE))
-ROLL_GIN <- as.vector(ncdf4::ncvar_get(tmp_AIMMS,"ROLL_GIN",collapse_degen=FALSE))
-co <- as.vector(ncdf4::ncvar_get(tmp_AIMMS,"CO_AERO",collapse_degen=FALSE))
-co_flag <- as.vector(ncdf4::ncvar_get(tmp_AIMMS,"CO_AERO_FLAG",collapse_degen=FALSE))
-core <- data.frame(HGT_RADR, press, ROLL_GIN, co, co_flag)
+#turn NetCDF into data frame
+for (i in 1:length(eddyvars)) {
+  vname <- eddyvars[i]
+  raw <- as.vector(ncdf4::ncvar_get(core1,vname,collapse_degen=FALSE))
+  if(i==1){
+    CORE_1Hz <- data.frame(raw)
+    names(CORE_1Hz) <- vname
+  } 
+  else {
+    CORE_1Hz <- cbind(CORE_1Hz,raw)
+    names(CORE_1Hz)[ncol(CORE_1Hz)] <- vname
+  }
+}
 
 #get time
-Time <- as.vector(ncdf4::ncvar_get(tmp_AIMMS,"Time"))
-start <- as.POSIXct(strptime(substr(tmp_AIMMS$var[1][[names(tmp_AIMMS$var)[1]]]$dim[[1]]$units,15,33),
-                             "%Y-%m-%d %H:%M:%S"),tz="UTC") + Time[1]
-end <- as.POSIXct(strptime(substr(tmp_AIMMS$var[1][[names(tmp_AIMMS$var)[1]]]$dim[[1]]$units,15,33),
-                           "%Y-%m-%d %H:%M:%S"),tz="UTC") + Time[1] + (nrow(core)/rad_freq)
-core$date <- base::as.POSIXct(seq.POSIXt(from = start+(1/rad_freq),
-                                         to = end,
-                                         by = 1/rad_freq,
-                                         tz = "UTC"))
+rad_time <- ncvar_get(core1, attributes(core1$dim)$names[1]) %>% as.vector()
+date <- strptime(x = origin, format ="%Y%m%d %H:%M") + (rad_time)
+CORE_1Hz$date <- base::as.POSIXct(date, tz = "UTC")
 
 #tidy up
-rm(Time,start,end, tmp_AIMMS, HGT_RADR, press, ROLL_GIN)
+rm(core1, date, rad_time, i, raw, vname)
+
 
 
 ################################################################################
-#temperature
+### Loading 16 Hz Thermistor data ###
 
-#get data 
-tmp_temp <- read.csv(file=paste0("./thermistor_16Hz/",
-                                 thermistor_files[grep(fn,thermistor_files,ignore.case=TRUE)]),
-                     header = T, sep = ",",
+TEMP_16Hz <- read.csv(file=paste0("./thermistor_16Hz/",thermistor_files[grep(fn,thermistor_files,ignore.case=TRUE)]),
+                     header = T, 
+                     sep = ",",
                      stringsAsFactors = F) %>%
   dplyr::rename(date=datetime, temp=TAT_THERM_U) %>%
   dplyr::mutate(date=as.POSIXct(strptime(date, "%Y-%m-%d %H:%M:%OS", tz="UTC"))) %>%
   dplyr::select(date,temp)
 
+
+
 ################################################################################
+### Loading calibrated 10 Hz FGGA data ###
 
-#FGGA 10 Hz
-
-#read
-FGGA_10hz <- read.delim(file=paste0("./fgga_10hz/",
-                                    FGGA_10_files[grep(fn,FGGA_10_files,ignore.case=TRUE)]),
-                        skip = 62, header = F, sep=" ") %>%
+#open file
+FGGA_10Hz <- read.delim(file=paste0("./fgga_10hz/",FGGA_10_files[grep(fn,FGGA_10_files,ignore.case=TRUE)]),
+                        skip = 62, 
+                        header = F, 
+                        sep=" ") %>%
   dplyr::rename(.,date=V1,CO2_ppm=V2,CH4_ppb=V4) %>%
   dplyr::select(.,c(date,CO2_ppm,CH4_ppb))
 
-#get date in right format
-FGGA_10hz$date <- FGGA_10hz$date + strptime(x = origin, format ="%Y%m%d %H:%M")
+#format date
+FGGA_10Hz$date <- FGGA_10Hz$date + strptime(x = origin, format ="%Y%m%d %H:%M")
 
-#filter
-FGGA_10hz$CH4_ppb[FGGA_10hz$CH4_ppb < 0] <- NA 
-FGGA_10hz$CO2_ppm[FGGA_10hz$CO2_ppm < 0] <- NA
-FGGA_10hz$CH4_ppb[FGGA_10hz$CH4_ppb >9500] <- NA 
-FGGA_10hz$CO2_ppm[FGGA_10hz$CO2_ppm >950] <- NA
-
+#NA flagged data and pressure issues (sanity check)
+FGGA_10Hz$CH4_ppb[FGGA_10Hz$CH4_ppb < 0] <- NA 
+FGGA_10Hz$CO2_ppm[FGGA_10Hz$CO2_ppm < 0] <- NA
+FGGA_10Hz$CH4_ppb[FGGA_10Hz$CH4_ppb >9500] <- NA 
+FGGA_10Hz$CO2_ppm[FGGA_10Hz$CO2_ppm >950] <- NA
 
 
 
 ################################################################################
+### Loading raw 10 Hz FGGA data (water) ###
 
-# FGGA H2O
-
-#get data (ignore warning)
-H2O_10Hz <- read.delim(file=paste0("./fgga_h2o/",
-                                   FGGA_H2O_files[grep(fn,FGGA_H2O_files,ignore.case=TRUE)]),
-                       header = T, sep = ",",
-                       stringsAsFactors = F) %>%
+#open file
+H2O_10Hz <- read.delim(file=paste0("./fgga_h2o/",FGGA_H2O_files[grep(fn,FGGA_H2O_files,ignore.case=TRUE)]),
+                       header = T, 
+                       sep = ",",
+                       stringsAsFactors = F,
+                       skipNul = TRUE) %>%
   dplyr::rename(date=Time) %>%
   dplyr::mutate(date=as.POSIXct(strptime(date, "%d/%m/%Y %H:%M:%OS", tz="UTC"))) %>%
   dplyr::select(date,H2O_ppm)
 
-#filter
+#NA calibration data and pressure issues
 H2O_10Hz$H2O_ppm[H2O_10Hz$H2O_ppm < 1] <- NA
 
-FL_mrg$co[FL_mrg$co_flag>0] <- NA
 
 
 ################################################################################
+### Merging ###
 
-# Crop all to FGGA 10Hz
+#crop all to calibrated FGGA file length
+CORE_1Hz <- CORE_1Hz %>% subset(.,date>=min(FGGA_10Hz$date) & date<=max(FGGA_10Hz$date))
+CORE_32Hz <- CORE_32Hz %>% subset(.,date>=min(FGGA_10Hz$date) & date<=max(FGGA_10Hz$date))
+H2O_10Hz <- H2O_10Hz %>% subset(.,date>=min(FGGA_10Hz$date) & date<=max(FGGA_10Hz$date))
+TEMP_16Hz <-  TEMP_16Hz %>% subset(.,date>=min(FGGA_10Hz$date) & date<=max(FGGA_10Hz$date))
 
-core <- core %>% subset(.,date>=min(FGGA_10hz$date) & date<=max(FGGA_10hz$date))
-AIMMS_32hz <- AIMMS_32hz %>% subset(.,date>=min(FGGA_10hz$date) & date<=max(FGGA_10hz$date))
-H2O_10Hz <- H2O_10Hz %>% subset(.,date>=min(FGGA_10hz$date) & date<=max(FGGA_10hz$date))
-tmp_temp <-  tmp_temp %>% subset(.,date>=min(FGGA_10hz$date) & date<=max(FGGA_10hz$date))
-
-
-################################################################################
-
-#interpolate up
-
-tmp_date <- data.frame(date=AIMMS_32hz$date)
-FL_mrg <- cbind(tmp_date,
-                sapply(names(core)[-which(names(core)=="date")],
+#interpolate up to 30 Hz
+FL_mrg <- cbind(CORE_32Hz,
+                sapply(names(CORE_1Hz)[-which(names(CORE_1Hz)=="date")],
                        function(x)
-                         x <- approx(core$date,core[[x]],
-                                     tmp_date$date)$y))%>%
-  cbind(.,
-        sapply(names(tmp_temp)[-which(names(tmp_temp)=="date")],
-               function(x)
-                 x <- approx(tmp_temp$date,tmp_temp[[x]],
-                             tmp_date$date)$y))%>%
-  cbind(.,
-        sapply(names(FGGA_10hz)[-which(names(FGGA_10hz)=="date")],
-               function(x)
-                 x <- approx(FGGA_10hz$date,FGGA_10hz[[x]],
-                             tmp_date$date)$y)) %>%
-  cbind(.,
-        sapply(names(H2O_10Hz)[-which(names(H2O_10Hz)=="date")],
-               function(x)
-                 x <- approx(H2O_10Hz$date,H2O_10Hz[[x]],
-                             tmp_date$date)$y)) %>%
-  cbind(.,AIMMS_32hz[-which(names(H2O_10Hz)=="date")]) 
+                         x <- approx(CORE_1Hz$date,CORE_1Hz[[x]],
+                                     CORE_32Hz$date)$y)) %>%
+          cbind(.,
+                sapply(names(TEMP_16Hz)[-which(names(TEMP_16Hz)=="date")],
+                       function(x)
+                         x <- approx(TEMP_16Hz$date,TEMP_16Hz[[x]],
+                                     CORE_32Hz$date)$y)) %>%
+          cbind(.,
+                sapply(names(FGGA_10Hz)[-which(names(FGGA_10Hz)=="date")],
+                       function(x)
+                         x <- approx(FGGA_10Hz$date,FGGA_10Hz[[x]],
+                                     CORE_32Hz$date)$y)) %>%
+          cbind(.,
+                sapply(names(H2O_10Hz)[-which(names(H2O_10Hz)=="date")],
+                       function(x)
+                         x <- approx(H2O_10Hz$date,H2O_10Hz[[x]],
+                                     CORE_32Hz$date)$y)) %>%
+          na.omit()
 
-FL_mrg <- FL_mrg[,1:length(FL_mrg)-1]
-FL_mrg <- na.omit(FL_mrg)
 #tidy up
-rm(AIMMS_32hz,core,FGGA_10hz,H2O_10Hz,tmp_date, tmp_temp)
-
-#cut out fires
-FL_mrg$CH4_ppb[FL_mrg$date > ymd_hms("2019-02-02 10:10:21") & FL_mrg$date < ymd_hms("2019-02-02 10:10:51")] <-  NA
-
-FL_mrg <- na.omit(FL_mrg)
-
+rm(CORE_32Hz, CORE_1Hz, FGGA_10Hz, H2O_10Hz, TEMP_16Hz)
 
 
 
 ################################################################################
-
-#snip legs
-
-#C136
-#FL_mrg <- FL_mrg %>%
-#dplyr::filter(LON_GIN>20)%>%
-#dplyr::filter(LAT_GIN>(-15)) %>%
-#na.omit()
-
+### Snipping legs ###
 
 #filter data based on altitude and roll angle
 FL_brk <- FL_mrg %>%
   dplyr::filter(HGT_RADR<610) %>%
-  dplyr::filter(abs(ROLL_GIN)<20) %>%
-  na.omit()
+  dplyr::filter(abs(ROLL_GIN)<20)
 
-#map to check if sensible
-# bbox = c(min(FL_mrg$LON_GIN-0.2),min(FL_mrg$LAT_GIN-0.1),max(FL_mrg$LON_GIN+0.2),max(FL_mrg$LAT_GIN+0.1))
-# mymap = ggmap::get_stamenmap(bbox, zoom = 5)
-# ggmap(mymap)+
-#  geom_point(data = FL_brk,
-#             aes(LON_GIN,LAT_GIN, colour=HGT_RADR),
-#             size = 2) +
-#  scale_color_viridis(option="magma") +
-#  theme(plot.title = element_text(hjust = 0.5), text = element_text(size=14), legend.title = element_blank())
-
-
-#find heading breaks that are longer than 10 degrees
+#find time gaps longer than 5 seconds / 500 m
 t_dif <- diff(FL_brk$date) %>% as.numeric(.)
-t_gaps <- which(abs(t_dif)>5) #time difference of 5 seconds / 500 m
+t_gaps <- which(abs(t_dif)>5)
 
-#Calculate start and end positions for each leg
+#calculate start and end positions for each leg
 t_start <- FL_brk$date[c(1,(t_gaps[1:(length(t_gaps)-1)]+1))]
 t_end <- FL_brk$date[t_gaps]
-t_leg <-  t_end - t_start 
 
 
 
 ################################################################################
-
-#loop for each leg
+### Preparing input files ###
 
 for(bk in 1:length(t_start)){
-  #bk <-  2
   
-  #clip data to start and end times for each leg
+  #clip data for each leg
   sub_mrg <- FL_mrg %>% subset(date>=t_start[bk] & date <= t_end[bk])
   
-  #Calculate UTM coordinates
+  #calculate UTM coordinates
   d <- data.frame(lon=sub_mrg$LON_GIN, lat=sub_mrg$LAT_GIN)
   coordinates(d) <- c("lon", "lat")
   proj4string(d) <- CRS("+proj=longlat")
+  cov <- spTransform(d, CRS(zn))
   
-  ### CHANGE ZONE TO THE RIGHT ONE!!!!!!!!!!!! ###
-  cov <- spTransform(d, CRS("+proj=utm +zone=35 ellps=WGS84"))
-  
-  #Calculate ground distance covered by the aircraft[m]
+  #calculate ground distance covered by the aircraft in m
   stretch <- c(0,sqrt((diff(cov@coords[,1]))^2 + (diff(cov@coords[,2]))^2))
   stretch <- cumsum(stretch)
   parcel <- cumsum(sub_mrg$TAS * 1/2)
   parcel <- parcel - min(parcel, na.rm=TRUE)
   
-  #Calculate the volume of air passed by the aircraft
+  #calculate the volume of air passed by the aircraft
   sub_mrg$d_xy_travel <- stretch
   sub_mrg$d_xy_flow <- parcel
   sub_mrg$d_x_utm <- cov@coords[,1]
@@ -307,28 +269,28 @@ for(bk in 1:length(t_start)){
   }
   rm(gg)
   
-  #final check for high altitudes and rolls
+  #sanity check for high altitudes and rolls
   sub_mrg <- sub_mrg %>%
     dplyr::filter(HGT_RADR<610.01) %>%
     dplyr::filter(abs(ROLL_GIN)<20.01) %>%
     na.omit()
   
-  #distance traveled check
+  #distance travelled check
   sub_mrg$d_xy_travel <- sub_mrg$d_xy_travel - sub_mrg$d_xy_travel[1]
   sub_mrg$d_xy_flow <- sub_mrg$d_xy_flow - sub_mrg$d_xy_flow[1]
   
-  l_exp <- T
+  #flag whether fulfils criteria for AEC
+  l_exp <- T #criteria:
+    if(max(diff(sub_mrg$d_xy_travel))>500){l_exp <- F} #breaks sanity check
+    if(range(sub_mrg$d_xy_travel)[2]<14999){l_exp <- F} #sufficient length
+    if((max(sub_mrg$HGT_RADR)-min(sub_mrg$HGT_RADR))>400){l_exp <- F} #not a profile (differences might be big when flying at constant pressure not radar height; need double checking manually)
   
-  if(max(diff(sub_mrg$d_xy_travel))>500){l_exp <- F} #breaks sanity check
-  if(range(sub_mrg$d_xy_travel)[2]<14999){l_exp <- F} #too short
-  if((max(sub_mrg$HGT_RADR)-min(sub_mrg$HGT_RADR))>400){l_exp <- F} #profile
-  
-  #only export leg if conditions are made
+  #only export leg if criteria are met
   if(l_exp){
     
     #create data.frame for export
     eddy.data <- data.frame(date=sub_mrg$date,
-                            t_utc=yorkFLUX::UTC_Time(sub_mrg$date), #yorkFLUX is outdated
+                            t_utc=yorkFLUX::UTC_Time(sub_mrg$date), #yorkFLUX might not be up to date
                             t_doy_utc=yorkFLUX::DOY_Time(sub_mrg$date),
                             t_doy_local=yorkFLUX::DOY_Time(sub_mrg$date),
                             lat_a=sub_mrg$LAT_GIN,
@@ -336,7 +298,7 @@ for(bk in 1:length(t_start)){
                             d_x_utm=sub_mrg$d_x_utm,
                             d_y_utm=sub_mrg$d_y_utm,
                             d_z_m=sub_mrg$HGT_RADR,
-                            d_z_ABL=rep(800,length(sub_mrg$date)), ##boundary layer (meters)
+                            d_z_ABL=rep(bl,length(sub_mrg$date)), 
                             d_xy_travel=sub_mrg$d_xy_travel,
                             d_xy_flow=sub_mrg$d_xy_flow,
                             PSI_aircraft=sub_mrg$HDG_GIN,
@@ -347,21 +309,33 @@ for(bk in 1:length(t_start)){
                             w_met=sub_mrg$W,
                             T_air=sub_mrg$temp,
                             p_air=sub_mrg$press*100, #hPa to Pa
-                            FD_mole_H2O=sub_mrg$H2O_ppm* 1e-6,
-                            FD_mole_CH4=sub_mrg$CH4_ppb* 1e-9)
+                            FD_mole_H2O=sub_mrg$H2O_ppm* 1e-6, 
+                            FD_mole_CH4=sub_mrg$CH4_ppb* 1e-9) 
     
     saveRDS(eddy.data,
             file=paste0("./processed/",fn,"_leg_",bk,".rds"))
     
-    #clean up
+    #tidy up
     rm(eddy.data)
     
   }
   
-  #clean up
+  #tidy up
   rm(l_exp,sub_mrg)
   
 }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
