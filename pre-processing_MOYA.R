@@ -19,84 +19,45 @@ library(openair)
 library(reshape2)
 
 
-##############################################################
-#        CHANGE FLIGHT NUMBER, ZONE & BOUNDARY layer         #
-##############################################################
-# Uganda all 35, Zambia 36, Finland 35
-
-
-
 ################################################################################
+### Initial setup ###
+
 #set working directory
 setwd("G:/Shared drives/eddy4R AEC/pre_processing")
 
-#set sensitivity for change in altitude
-alt_change <- 1.5 #+- mean*1.5 times standard deviation 
+#list all files
+core_32_files <-  list.files("./aimms_32hz",pattern = ".nc") # core 32 Hz data
+core_01_files <- list.files("./aimms_1hz",pattern = ".nc") # core 1 Hz data (things that are wonky in 32 Hz)
+FGGA_10_files <- list.files("./fgga_10hz",pattern = ".na") # FGGA 10 Hz data (methane)
+FGGA_H2O_files <- list.files("./fgga_h2o",pattern = ".txt") # FGGA raw 10 Hz file (water vapour)
+thermistor_files <- list.files("./thermistor_16Hz",pattern = ".csv") # Thermistor 16 Hz files (temperature)
 
-#files
-#AIMMS_20_files <- list.files("./aimms_20hz",pattern = ".nc") 
-core_32_files <-  list.files("./aimms_32hz",pattern = ".nc")
-AIMMS_01_files <- list.files("./aimms_1hz",pattern = ".nc")
-FGGA_10_files <- list.files("./fgga_10hz",pattern = ".na")
-FGGA_h2o_files <- list.files("./fgga_h2o",pattern = ".txt")
-thermistor_files <- list.files("./thermistor_16Hz",pattern = ".csv")
+#choose flight
+flno <- 5
 
-#flight number
+#get full flight number
 FLIGHT_num <- stringr::str_sub(FGGA_10_files, start= -7) %>% gsub(".na","",.)
-fn <- FLIGHT_num[6] 
+fn <- FLIGHT_num[flno] 
 
 #start date
 origin_all <-  stringr::str_sub(FGGA_10_files, start= -19, end=-12) %>% gsub(".na","",.)
-origin <-  origin_all[6]
+origin <-  origin_all[flno]
 origin <-  paste0(origin, " 00:00")
 
 #frequencies
-#aimms_freq <- 20
 core_freq <-  32
 fgga_freq <- 10
 rad_freq <-  1
 temp_freq <- 32
 
-################################################################################
 
-# AIMMS (Jacobs code adopted) 
-#https://www.r-bloggers.com/a-netcdf-4-in-r-cheatsheet/
+# Uganda all 35, Zambia 36, Finland 35
 
-# #open
-# aimms_ncdf <- ncdf4::nc_open(paste0("./aimms_20hz/",AIMMS_20_files[grep(fn,AIMMS_20_files,ignore.case=TRUE)]))
-# 
-# #get variables
-# #temp <- ncvar_get(aimms_ncdf, attributes(aimms_ncdf$var)$names[1]) %>% as.vector()
-# U <- ncvar_get(aimms_ncdf, attributes(aimms_ncdf$var)$names[3]) %>% as.vector()
-# V <- ncvar_get(aimms_ncdf, attributes(aimms_ncdf$var)$names[4]) %>% as.vector()
-# W <- ncvar_get(aimms_ncdf, attributes(aimms_ncdf$var)$names[5]) %>% as.vector()
-# lat <- ncvar_get(aimms_ncdf, attributes(aimms_ncdf$var)$names[6]) %>% as.vector()
-# long <- ncvar_get(aimms_ncdf, attributes(aimms_ncdf$var)$names[7]) %>% as.vector()
-# altitude <- ncvar_get(aimms_ncdf, attributes(aimms_ncdf$var)$names[8]) %>% as.vector()
-# heading <- ncvar_get(aimms_ncdf, attributes(aimms_ncdf$var)$names[14]) %>% as.vector()
-# tas <- ncvar_get(aimms_ncdf, attributes(aimms_ncdf$var)$names[15]) %>% as.vector()
-# ws <- ncvar_get(aimms_ncdf, attributes(aimms_ncdf$var)$names[18]) %>% as.vector()
-# wd <- ncvar_get(aimms_ncdf, attributes(aimms_ncdf$var)$names[19]) %>% as.vector()
-# 
-# #get time
-# aimms_time <- ncvar_get(aimms_ncdf, attributes(aimms_ncdf$dim)$names[1]) %>% as.vector()
-# date <- strptime(x = origin, format ="%Y%m%d %H:%M") + (aimms_time)
-# date <- base::as.POSIXct(seq.POSIXt(from = min(date)+(1/aimms_freq),
-#                                     to = max(date)+1, #20 points / 1s less than aimms has, who knows why
-#                                     by = 1/aimms_freq,
-#                                     tz = "UTC"))  
-# 
-# #put all together
-# aimms <- data.frame(date, lat, long, altitude,  U,V,W, heading,tas, ws, wd) %>% na.omit
-# 
-# #tidy up
-# rm(wd, ws, tas, heading, U, V, W, lat, long, altitude)
 
 
 
 ################################################################################
-
-#CORE 32Hz
+### loading core 32 Hz data ###
 
 #open
 core32 <- ncdf4::nc_open(paste0("./aimms_32hz/",
@@ -129,18 +90,6 @@ AIMMS_32hz$date <- base::as.POSIXct(seq.POSIXt(from = min(date)+(1/core_freq),
 
 
 
-
-# #get time
-# Time <- as.vector(ncdf4::ncvar_get(core32,"Time"))
-# start <- as.POSIXct(strptime(substr(core32$var[1][[names(core32$var)[1]]]$dim[[1]]$units,15,33),
-#                              "%Y-%m-%d %H:%M:%S"),tz="UTC") + Time[1]
-# end <- as.POSIXct(strptime(substr(AIMMS_32hz$var[1][[names(AIMMS_32hz$var)[1]]]$dim[[1]]$units,15,33),
-#                            "%Y-%m-%d %H:%M:%S"),tz="UTC") + Time[1] + (nrow(AIMMS_32hz)/core_freq)
-# AIMMS_32hz$date <- base::as.POSIXct(seq.POSIXt(from = start+(1/core_freq),
-#                                          to = end,
-#                                          by = 1/core_freq,
-#                                          tz = "UTC"))
-
 #tidy up
 rm( core32, date)
 
@@ -151,7 +100,7 @@ rm( core32, date)
 
 #open
 tmp_AIMMS <- ncdf4::nc_open(paste0("./aimms_1hz/",
-                                   AIMMS_01_files[grep(fn,AIMMS_01_files,ignore.case=TRUE)]))
+                                   core_01_files[grep(fn,core_01_files,ignore.case=TRUE)]))
 
 #get variables
 HGT_RADR <- as.vector(ncdf4::ncvar_get(tmp_AIMMS,"HGT_RADR",collapse_degen=FALSE))
@@ -217,7 +166,7 @@ FGGA_10hz$CO2_ppm[FGGA_10hz$CO2_ppm >950] <- NA
 
 #get data (ignore warning)
 H2O_10Hz <- read.delim(file=paste0("./fgga_h2o/",
-                                   FGGA_h2o_files[grep(fn,FGGA_h2o_files,ignore.case=TRUE)]),
+                                   FGGA_H2O_files[grep(fn,FGGA_H2O_files,ignore.case=TRUE)]),
                        header = T, sep = ",",
                        stringsAsFactors = F) %>%
   dplyr::rename(date=Time) %>%
