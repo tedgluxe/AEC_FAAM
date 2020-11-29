@@ -232,6 +232,10 @@ t_gaps <- which(abs(t_dif)>5)
 t_start <- FL_brk$date[c(1,(t_gaps[1:(length(t_gaps)-1)]+1))]
 t_end <- FL_brk$date[t_gaps]
 
+#save the legs for post-processing
+legs <- data.frame(t_start,t_end)
+saveRDS(legs, file=paste0("./processed/",fn,"legs.rds"))
+
 
 
 ################################################################################
