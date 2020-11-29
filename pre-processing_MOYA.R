@@ -327,31 +327,16 @@ for(bk in 1:length(t_start)){
 
 
 
+################################################################################
+### QA/QC of the snipped runs ###
 
-
-
-
-
-
-
-
-
-
-
-
-##########################################################################
-
-#check the runs
-dm <- readRDS("G:/Shared drives/eddy4R AEC/pre_processing/processed/c137_leg_33.rds")
+#check the altitude
 ggplot(data=dm, aes(date, d_z_m, colour=d_z_m)) + geom_point()+ scale_color_viridis()
 
-
-# if need to trim
+#if need to trim
 dm <-  dm %>% filter(date<ymd_hms("2019-02-02 10:28:20"))
-dm$d_xy_travel <- dm$d_xy_travel - min(dm$d_xy_travel)
-dm$d_xy_flow <- dm$d_xy_flow - min(dm$d_xy_flow)
-max(diff(dm$d_xy_travel))
-range(dm$d_z_m)
+
+#check for distance travelled
 range(dm$d_xy_travel)
 
 #save
@@ -359,45 +344,9 @@ saveRDS(dm,"./processed/c137_leg_27.rds")
 
 
 
-FL_mrg2 <- FL_mrg %>% filter(date < ymd_hms("2019-01-25 12:30:00"))
-
-ggplot()+geom_point(aes(FL_mrg2$temp, FL_mrg2$HGT_RADR), colour="blue") +theme_bw() 
-#+labs(x="Time", y="Temperature / K") 
-
-
-#############################
-
-#crop data by date & time
-dm <- FL_mrg %>%
-  filter(between(date, 
-                 ymd_hms("2019-01-25 12:04:00"),
-                 ymd_hms("2019-01-25 14:23:00"))) 
-dm$CH4_ppb[dm$CH4_ppb<1900] <- 1900
-dm$CH4_ppb[dm$CH4_ppb>2400] <- 2400
-
-#limits=c(1900, 2400)
-
-
-bbox = c(min(dm$LON_GIN-0.1),min(dm$LAT_GIN-0.05),max(dm$LON_GIN+0.1),max(dm$LAT_GIN+0.05))
-mymap = ggmap::get_stamenmap(bbox, zoom = 5)
-ggmap(mymap)+
-  geom_point(data = dm,
-             aes(LON_GIN,LAT_GIN, colour=CH4_ppb),
-             size = 2, alpha=.6) +
-  scale_color_viridis(option="magma") +
-  labs(x="Longitude", y="Latitude", title=bquote(''~CH[4]~ (ppb)*'')) +
-  theme(plot.title = element_text(hjust = 0.5), text = element_text(size=14), legend.title = element_blank())
-
-
-
-
-
-
-
-
-
-
-
+################################################################################
+      ### Now feed the legs to the AEC algorithm and hope for the best ###
+################################################################################
 
 
 
