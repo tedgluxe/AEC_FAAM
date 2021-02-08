@@ -14,8 +14,8 @@ library(mapdata)
 ################################################################################
 ### Plotting ###
 
-#Google map key, this one belongs to Jacob Shaw and can bes used only for MOYA paper!
-ggmap::register_google(key = "AIzaSyAQxBVJMLIDDbIDkZ90MhgRDSwMSAOi3n8")
+#Google map key
+ggmap::register_google(key = "")
 
 #adjust centre of the map from a standard stamenmap plot, zoom defines size of the map, scale - don't touch
 map <- get_googlemap(center = c(lon = 27.1, lat = -15.9), zoom = 9, scale=2, maptype = "satellite")
