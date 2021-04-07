@@ -147,6 +147,7 @@ mean(d$error_abs)/sqrt(nrow(d))
 sd(d$flux_c)
 rm(d)
 
+write.csv(flux2, "G:/My Drive/eddy_new/AEC_ZWAMPS_paper/C137_corrected_v8.csv")
 
 #basic map
 data_map <-  flux2 %>% na.omit() #pick data 
