@@ -25,13 +25,16 @@ library(wsdmiscr)
 #load flight as 'dm' and its legs intervals as 'legs' 
 
 #extract the eddy data
-flux <-  data.frame(dm$INST$WAVE$date, dm$INST$WAVE$lat_a, dm$INST$WAVE$lon_a, dm$INST$WAVE$F_CH4_mass, dm$INST$error$ran.flux.F_CH4_mass, dm$INST$WAVE$u_star) %>% 
+flux <-  data.frame(dm$INST$WAVE$date, dm$INST$WAVE$lat_a, dm$INST$WAVE$lon_a, dm$INST$WAVE$F_CH4_mass, dm$INST$error$ran.flux.F_CH4_mass, dm$INST$error$sys.flux.F_CH4_mass, dm$INST$itcs$ItcFlag_w_hor, dm$INST$itcs$Itc_w_hor, dm$INST$REYN$d_z_m) %>% 
   dplyr::rename(date = dm.INST.WAVE.date,
          lat=dm.INST.WAVE.lat_a,
          lon=dm.INST.WAVE.lon_a,
          flux=dm.INST.WAVE.F_CH4_mass,
-         error=dm.INST.error.ran.flux.F_CH4_mass,
-         u_star=dm.INST.WAVE.u_star)
+         error_ran=dm.INST.error.ran.flux.F_CH4_mass,
+         error_sys=dm.INST.error.sys.flux.F_CH4_mass,
+         w_flag=dm.INST.itcs.ItcFlag_w_hor,
+         w_hor=dm.INST.itcs.Itc_w_hor,
+         alt = dm.INST.REYN.d_z_m)
 flux$date <-  as.POSIXct(flux$date)
 
 #get the legs times
@@ -70,27 +73,83 @@ leg_5$lod  <- 4.98
 #put back together
 legs <- mget(ls(pattern = "leg_.*"))  #list the legs
 flux <- bind_rows(legs, .id = "column_label") #bind all the legs
-flux <- filter(flux, u_star >= 0.15 ) #filter by friction velocity
 rm(legs) #tidy up
 
-#calculate error
-flux$error_abs <- flux$error*flux$flux/100
 
+
+
+################################################################################
+### flux correction for boundary layer depth ###
+
+#load BL data
+BL_ncdf <-  "G:/My Drive/eddy_new/CONGO-FAAM-various_SOUTHAFRICA-0.14-0.09_201902.nc"
+
+#extract BL height
+BL_ncdf <- ncdf4::nc_open(BL_ncdf)
+BLH <- ncvar_get(BL_ncdf, attributes(BL_ncdf$var)$names[6]) %>% as.vector()
+
+
+#get time and adjust frequency 
+origin <- "20190101 00:00"
+BL_time <- ncvar_get(BL_ncdf, attributes(BL_ncdf$dim)$names[1]) %>% as.vector()
+date <- strptime(x = origin, format ="%Y%m%d %H:%M") + (BL_time)
+
+#make a data frame
+BL <-  data.frame(date, BLH)
+
+#merge BL & flux data
+flux <- cbind(flux,
+                sapply(names(BL)[-which(names(BL)=="date")],
+                       function(x)
+                         x <- approx(BL$date,BL[[x]],
+                                     flux$date)$y)) %>%
+          na.omit()
+
+#correct the flux
+flux$flux_c <-  flux$flux/(1-(flux$alt/flux$BLH))
+
+#calculate error
+flux$error_abs <- (flux$error_ran+flux$error_sys)*flux$flux_c/100
+
+#filtering
+flux2 <- flux %>% filter(w_flag<1)
+
+# plot the bad boi
+
+#correction
+ggplot(flux)+
+  geom_point(aes(x=flux,y=flux_c), size=2, shape=1) +
+  theme_bw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        text = element_text(size=14), 
+        legend.title = element_blank()) +
+  xlim(min(flux$flux_c), max(flux$flux_c))+
+  labs(x=bquote(''~EC~raw~(CH[4]~mg~m^-2~h^-1)*'') , y=bquote(''~EC~corrected~(CH[4]~mg~m^-2~h^-1)*''), title="C137")
+
+#flagging
+ggplot(flux)+
+  geom_point(aes(x=w_hor,y=flux_c, fill=w_flag), size=2, shape=21) +
+  theme_bw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        text = element_text(size=14), 
+        legend.title = element_blank()) +
+  labs(x="Integral Turbulence Characteristics (%)" , y=bquote(''~EC~(CH[4]~mg~m^-2~h^-1)*''), title="C137, threshold 100%")+
+  guides(fill = FALSE) 
 
 
 ################################################################################
 ### statistics and visualisation ###
 
 #average & standard deviation
-d <- flux
-mean(d$flux)
+d <- flux2
+mean(d$flux_c)
 mean(d$error_abs)/sqrt(nrow(d))
-sd(d$flux)
+sd(d$flux_c)
 rm(d)
 
 
 #basic map
-data_map <-  flux %>% na.omit() #pick data 
+data_map <-  flux2 %>% na.omit() #pick data 
 bbox = c(min(data_map$lon-0.2),min(data_map$lat-0.1),max(data_map$lon+0.2),max(data_map$lat+0.1)) #pick area
 mymap = ggmap::get_stamenmap(bbox, zoom = 7) #pick zoom
 
@@ -98,9 +157,9 @@ ggmap(mymap)+
   geom_point(data = data_map, 
              aes(x = lon,
                  y = lat, 
-                 colour = flux, 
-                 size = flux)) +
-  scale_color_viridis(option="magma") +
+                 colour = flux_c, 
+                 size = flux_c)) +
+  scale_color_viridis(option="viridis") +
   labs(title=bquote(''~CH[4]~ (mg~m^-2~h^-1)*''))+
   theme(plot.title = element_text(hjust = 0.5), 
         text = element_text(size=14), 
@@ -183,7 +242,7 @@ leg_12$lod <- 0.96
 leg_14$lod <- 2.02
 leg_17$lod <- 0.95
 
-fluxJ <- filter(flux, lat > (-14.6) & lat < (-14.24) &lon > 27.61 & lon < 27.95)
+fluxJ <- filter(flux2, lat > (-14.6) & lat < (-14.24) &lon > 27.61 & lon < 27.95)
 
 
 
