@@ -118,13 +118,13 @@ flux2 <- flux %>% filter(w_flag<1)
 
 #correction
 ggplot(flux)+
-  geom_point(aes(x=flux,y=flux_c), size=2, shape=1) +
+  geom_point(aes(x=alt/BLH,y=(flux_c-flux)*100/flux), size=2, shape=1) +
   theme_bw()+
   theme(plot.title = element_text(hjust = 0.5), 
         text = element_text(size=14), 
         legend.title = element_blank()) +
-  xlim(min(flux$flux_c), max(flux$flux_c))+
-  labs(x=bquote(''~EC~raw~(CH[4]~mg~m^-2~h^-1)*'') , y=bquote(''~EC~corrected~(CH[4]~mg~m^-2~h^-1)*''), title="C137")
+  #xlim(min(flux$flux_c), max(flux$flux_c))+
+  labs(x="Relative boundary layer depth", y="Percantage correction", title="C137")
 
 #flagging
 ggplot(flux)+
