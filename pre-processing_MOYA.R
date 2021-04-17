@@ -34,11 +34,12 @@ core_01_files <- list.files("./aimms_1hz",pattern = ".nc") # core 1 Hz data (thi
 FGGA_10_files <- list.files("./fgga_10hz",pattern = ".na") # FGGA 10 Hz data (methane)
 FGGA_H2O_files <- list.files("./fgga_h2o",pattern = ".txt") # FGGA raw 10 Hz file (water vapour)
 thermistor_files <- list.files("./thermistor_16Hz",pattern = ".csv") # Thermistor 16 Hz files (temperature)
+BL_ncdf <-  "G:/My Drive/eddy_new/CONGO-FAAM-various_SOUTHAFRICA-0.14-0.09_201902.nc" #1 min unified model boundary layer in m
 
 #choose flight and UTM zone
-flno <- 5
-zn <- "+proj=utm +zone=35" #UTM zones: Uganda 35, Zambia 36, Finland 35
-bl <- 800 #boundary layer in m (see inversions in profiles & choose minimal value)
+flno <- 7
+zn <- "+proj=utm +zone=36" #UTM zones: Uganda 35, Zambia 36, Finland 35
+#bl <- 800 #boundary layer in m (see inversions in profiles & choose minimal value)
 
 #get full flight number
 FLIGHT_num <- stringr::str_sub(FGGA_10_files, start= -7) %>% gsub(".na","",.)
@@ -54,7 +55,7 @@ core_freq <-  32
 fgga_freq <- 10
 rad_freq <-  1
 temp_freq <- 32
-
+bl_freq <- 1
 
 
 ################################################################################
@@ -180,6 +181,28 @@ H2O_10Hz$H2O_ppm[H2O_10Hz$H2O_ppm < 1] <- NA
 
 
 ################################################################################
+### Loading Anita's unified model 1 min BL data ###
+
+#load BL data
+BL_ncdf <-  "G:/My Drive/eddy_new/CONGO-FAAM-various_SOUTHAFRICA-0.14-0.09_201902.nc"
+
+#extract BL height
+BL_ncdf <- ncdf4::nc_open(BL_ncdf)
+BLH <- ncvar_get(BL_ncdf, attributes(BL_ncdf$var)$names[6]) %>% as.vector()
+
+
+#get time and adjust frequency 
+origin <- "20190101 00:00"
+BL_time <- ncvar_get(BL_ncdf, attributes(BL_ncdf$dim)$names[1]) %>% as.vector()
+date <- strptime(x = origin, format ="%Y%m%d %H:%M") + (BL_time)
+
+#make a data frame
+BL_1min <-  data.frame(date, BLH)
+
+# tidy up
+rm(BL_ncdf)
+
+################################################################################
 ### Merging ###
 
 #crop all to calibrated FGGA file length
@@ -187,6 +210,7 @@ CORE_1Hz <- CORE_1Hz %>% subset(.,date>=min(FGGA_10Hz$date) & date<=max(FGGA_10H
 CORE_32Hz <- CORE_32Hz %>% subset(.,date>=min(FGGA_10Hz$date) & date<=max(FGGA_10Hz$date))
 H2O_10Hz <- H2O_10Hz %>% subset(.,date>=min(FGGA_10Hz$date) & date<=max(FGGA_10Hz$date))
 TEMP_16Hz <-  TEMP_16Hz %>% subset(.,date>=min(FGGA_10Hz$date) & date<=max(FGGA_10Hz$date))
+BL_1min <- BL_1min %>% subset(.,date>=min(FGGA_10Hz$date) & date<=max(FGGA_10Hz$date)) 
 
 #interpolate up to 30 Hz
 FL_mrg <- cbind(CORE_32Hz,
@@ -209,10 +233,15 @@ FL_mrg <- cbind(CORE_32Hz,
                        function(x)
                          x <- approx(H2O_10Hz$date,H2O_10Hz[[x]],
                                      CORE_32Hz$date)$y)) %>%
+          cbind(.,
+                sapply(names(BL_1min)[-which(names(BL_1min)=="date")],
+                       function(x)
+                        x <- approx(BL_1min$date,BL_1min[[x]],
+                                    CORE_32Hz$date)$y)) %>%
           na.omit()
 
 #tidy up
-rm(CORE_32Hz, CORE_1Hz, FGGA_10Hz, H2O_10Hz, TEMP_16Hz)
+rm(CORE_32Hz, CORE_1Hz, FGGA_10Hz, H2O_10Hz, TEMP_16Hz, BL_1min)
 
 
 
@@ -302,7 +331,7 @@ for(bk in 1:length(t_start)){
                             d_x_utm=sub_mrg$d_x_utm,
                             d_y_utm=sub_mrg$d_y_utm,
                             d_z_m=sub_mrg$HGT_RADR,
-                            d_z_ABL=rep(bl,length(sub_mrg$date)), 
+                            d_z_ABL=sub_mrg$BLH, 
                             d_xy_travel=sub_mrg$d_xy_travel,
                             d_xy_flow=sub_mrg$d_xy_flow,
                             PSI_aircraft=sub_mrg$HDG_GIN,
@@ -312,9 +341,9 @@ for(bk in 1:length(t_start)){
                             uv_met=sqrt(sub_mrg$U^2 + sub_mrg$V^2),
                             w_met=sub_mrg$W,
                             T_air=sub_mrg$temp,
-                            p_air=sub_mrg$press*100, #hPa to Pa
+                            p_air=sub_mrg$PS_RVSM*100, #hPa to Pa
                             FD_mole_H2O=sub_mrg$H2O_ppm* 1e-6, 
-                            FD_mole_CH4=sub_mrg$CH4_ppb* 1e-9) 
+                            FD_mole_CO2=sub_mrg$CO2_ppm* 1e-6) 
     
     saveRDS(eddy.data,
             file=paste0("./processed/",fn,"_leg_",bk,".rds"))
@@ -336,15 +365,33 @@ for(bk in 1:length(t_start)){
 
 #check the altitude
 ggplot(data=dm, aes(date, d_z_m, colour=d_z_m)) + geom_point()+ scale_color_viridis()
+range(dm$d_z_m)
+mean(dm$d_z_m)*0.9 
+mean(dm$d_z_m)*1.1
+
 
 #if need to trim
-dm <-  dm %>% filter(date<ymd_hms("2019-02-02 10:28:20"))
+dm <-  dm %>% filter(d_z_m>330)
+dm <-  dm %>% filter(date>ymd_hms("2019-02-02 10:01:50"))
 
 #check for distance travelled
 range(dm$d_xy_travel)
 
+#changing BL
+dm2 <- cbind(dm,
+                sapply(names(BL_1min)[-which(names(BL_1min)=="date")],
+                       function(x)
+                         x <- approx(BL_1min$date,BL_1min[[x]],
+                                     dm$date)$y))
+dm <- subset(dm2, select=-c(d_z_ABL)) %>% dplyr::rename(d_z_ABL = BLH)
+
+
+l_exp <- T #criteria:
+if(max(diff(dm$d_xy_travel))>500){l_exp <- F} #breaks sanity check
+if(range(dm$d_xy_travel)[2]<29999){l_exp <- F}
+
 #save
-saveRDS(dm,"./processed/c137_leg_27.rds")
+saveRDS(dm,"G:/My Drive/eddy_new/ZWAMPS/C137_Kafue/trimmed_newBL_processed/c137_leg_31.rds")
 
 
 

@@ -18,6 +18,7 @@ library(raster)
 library(rgdal)
 library(sp)
 library(wsdmiscr)
+library(sf)
 
 ###############################
 ### load and format files ### 
@@ -25,7 +26,7 @@ library(wsdmiscr)
 #load flight as 'dm' and its legs intervals as 'legs' 
 
 #extract the eddy data
-flux <-  data.frame(dm$INST$WAVE$date, dm$INST$WAVE$lat_a, dm$INST$WAVE$lon_a, dm$INST$WAVE$F_CH4_mass, dm$INST$error$ran.flux.F_CH4_mass, dm$INST$error$sys.flux.F_CH4_mass, dm$INST$itcs$ItcFlag_w_hor, dm$INST$itcs$Itc_w_hor, dm$INST$REYN$d_z_m) %>% 
+flux <-  data.frame(dm$INST$WAVE$date, dm$INST$WAVE$lat_a, dm$INST$WAVE$lon_a, dm$INST$WAVE$F_CH4_mass, dm$INST$error$ran.flux.F_CH4_mass, dm$INST$error$sys.flux.F_CH4_mass, dm$INST$itcs$ItcFlag_w_hor, dm$INST$itcs$Itc_w_hor, dm$INST$REYN$d_z_m, dm$INST$REYN$d_z_ABL) %>% 
   dplyr::rename(date = dm.INST.WAVE.date,
          lat=dm.INST.WAVE.lat_a,
          lon=dm.INST.WAVE.lon_a,
@@ -34,7 +35,8 @@ flux <-  data.frame(dm$INST$WAVE$date, dm$INST$WAVE$lat_a, dm$INST$WAVE$lon_a, d
          error_sys=dm.INST.error.sys.flux.F_CH4_mass,
          w_flag=dm.INST.itcs.ItcFlag_w_hor,
          w_hor=dm.INST.itcs.Itc_w_hor,
-         alt = dm.INST.REYN.d_z_m)
+         alt = dm.INST.REYN.d_z_m,
+         BLH = dm.INST.REYN.d_z_ABL)
 flux$date <-  as.POSIXct(flux$date)
 
 #get the legs times
@@ -56,19 +58,26 @@ rm(list = empty, empty, legs) #remove empty ones and tidy up
 
 #remove unwanted legs and add LODs
 #C137
-rm(leg_12,leg_14,leg_16,leg_17,leg_2,leg_26,leg_28,leg_3,leg_32,leg_4,leg_8)
+rm(leg_18, leg_20)
 
-leg_18$lod <- 4.61
-leg_19$lod <- 2.74
-leg_20$lod <- 2.50
-leg_21$lod <- 1.56
-leg_24$lod <- 1.57
-leg_25$lod <- 2.54
-leg_27$lod <- 4.86
-leg_29$lod <- 2.38
-leg_30$lod <- 3.85
-leg_31$lod <- 1.64
-leg_5$lod  <- 4.98
+leg_19$lod <- 2.21
+leg_21$lod <- 1.80
+leg_24$lod <- 1.58
+leg_25$lod <- 3.60
+leg_27$lod <- 5.42
+leg_29$lod <- 2.52
+leg_30$lod <- 3.45
+leg_31$lod <- 2.08
+leg_5$lod  <- 4.35
+
+#C138
+leg_8$lod <- 0.70
+leg_12$lod <- 1.01
+leg_14$lod <- 1.42
+leg_17$lod <- 1.13
+
+
+
 
 #put back together
 legs <- mget(ls(pattern = "leg_.*"))  #list the legs
@@ -81,32 +90,8 @@ rm(legs) #tidy up
 ################################################################################
 ### flux correction for boundary layer depth ###
 
-#load BL data
-BL_ncdf <-  "G:/My Drive/eddy_new/CONGO-FAAM-various_SOUTHAFRICA-0.14-0.09_201902.nc"
-
-#extract BL height
-BL_ncdf <- ncdf4::nc_open(BL_ncdf)
-BLH <- ncvar_get(BL_ncdf, attributes(BL_ncdf$var)$names[6]) %>% as.vector()
-
-
-#get time and adjust frequency 
-origin <- "20190101 00:00"
-BL_time <- ncvar_get(BL_ncdf, attributes(BL_ncdf$dim)$names[1]) %>% as.vector()
-date <- strptime(x = origin, format ="%Y%m%d %H:%M") + (BL_time)
-
-#make a data frame
-BL <-  data.frame(date, BLH)
-
-#merge BL & flux data
-flux <- cbind(flux,
-                sapply(names(BL)[-which(names(BL)=="date")],
-                       function(x)
-                         x <- approx(BL$date,BL[[x]],
-                                     flux$date)$y)) %>%
-          na.omit()
-
 #correct the flux
-flux$flux_c <-  flux$flux/(1-(flux$alt/flux$BLH))
+flux$flux_c <-  flux$flux/(1-(flux$alt/(0.8*flux$BLH)))
 
 #calculate error
 flux$error_abs <- (flux$error_ran+flux$error_sys)*flux$flux_c/100
@@ -114,10 +99,14 @@ flux$error_abs <- (flux$error_ran+flux$error_sys)*flux$flux_c/100
 #filtering
 flux2 <- flux %>% filter(w_flag<1)
 
+fluxJ <- filter(flux2, lat > (-14.6) & lat < (-14.24) &lon > 27.61 & lon < 27.95)
+
+flux4 <- openair::timeAverage(flux2, avg.time="30 sec")
+
 # plot the bad boi
 
 #correction
-ggplot(flux)+
+ggplot(flux2)+
   geom_point(aes(x=alt/BLH,y=(flux_c-flux)*100/flux), size=2, shape=1) +
   theme_bw()+
   theme(plot.title = element_text(hjust = 0.5), 
@@ -125,6 +114,21 @@ ggplot(flux)+
         legend.title = element_blank()) +
   #xlim(min(flux$flux_c), max(flux$flux_c))+
   labs(x="Relative boundary layer depth", y="Percantage correction", title="C137")
+
+#error
+flux3 <-  flux2 %>% filter(flux<1)
+
+ggplot(flux3)+
+  geom_ribbon(aes(x=seq(1,nrow(flux3)), ymin=flux_c-(flux_c*error_ran/100), ymax=flux_c+(flux_c*error_ran/100)), fill="skyblue")+
+  geom_hline(yintercept = 0, colour="skyblue4", size=2)+
+  geom_point(aes(x=seq(1,nrow(flux3)),y=flux_c), size=2, shape=1) +
+  theme_bw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        text = element_text(size=14), 
+        legend.title = element_blank()) +
+  labs(x="Index", y=bquote(''~EC~(CH[4]~mg~m^-2~h^-1)*''), title="C138")
+
+
 
 #flagging
 ggplot(flux)+
@@ -137,6 +141,25 @@ ggplot(flux)+
   guides(fill = FALSE) 
 
 
+#alt
+ggplot(flux2)+
+  geom_point(aes(x=date,y=alt, colour=column_label), size=2) +
+  theme_bw()+
+  theme(plot.title = element_text(hjust = 0.5), 
+        text = element_text(size=14), 
+        legend.title = element_blank()) +
+  labs(x="Time" , y="Radar height in m", title="C137")+
+  guides(fill = FALSE)
+
+#value vs alt + corr
+ggplot(flux2)+
+  geom_point(aes(x=alt,y=flux_c, colour=(flux_c-flux)*100/flux), size=2) +
+  theme_bw()+
+  scale_color_viridis(option="viridis") +
+  theme(plot.title = element_text(hjust = 0.5), 
+        text = element_text(size=14)) +
+  labs(x="Radar height in m", y=bquote(''~EC~(CH[4]~mg~m^-2~h^-1)*''), colour="% correction", title="C137")
+
 ################################################################################
 ### statistics and visualisation ###
 
@@ -147,10 +170,10 @@ mean(d$error_abs)/sqrt(nrow(d))
 sd(d$flux_c)
 rm(d)
 
-write.csv(flux2, "G:/My Drive/eddy_new/AEC_ZWAMPS_paper/C137_corrected_v8.csv")
+write.csv(dg2, "G:/My Drive/eddy_new/BL_corrected_for_paper_v4/C137_v10_foot_pt2.csv")
 
 #basic map
-data_map <-  flux2 %>% na.omit() #pick data 
+data_map <-  flux4 %>% na.omit() #pick data 
 bbox = c(min(data_map$lon-0.2),min(data_map$lat-0.1),max(data_map$lon+0.2),max(data_map$lat+0.1)) #pick area
 mymap = ggmap::get_stamenmap(bbox, zoom = 7) #pick zoom
 
@@ -160,7 +183,8 @@ ggmap(mymap)+
                  y = lat, 
                  colour = flux_c, 
                  size = flux_c)) +
-  scale_color_viridis(option="viridis") +
+  scale_color_viridis(option="inferno", #limits=c(-10,150)
+                      ) +
   labs(title=bquote(''~CH[4]~ (mg~m^-2~h^-1)*''))+
   theme(plot.title = element_text(hjust = 0.5), 
         text = element_text(size=14), 
@@ -195,8 +219,8 @@ ggplot() +
 
 #remove unwanted legs
 #C137
-feet <-  dm$FOOT
-feet <- feet %>% purrr::list_modify("c137_leg_17.rds"=NULL, "c137_leg_21.rds"=NULL, "c137_leg_26.rds"=NULL, "c137_leg_28.rds"=NULL, "c137_leg_3.rds"=NULL, "c137_leg_4.rds"=NULL)
+feet <-  list(dm$FOOT$c137_leg_30.rds, dm$FOOT$c137_leg_31.rds)
+feet <- feet %>% purrr::list_modify("c137_leg_18.rds"=NULL, "c137_leg_20.rds"=NULL, "c137_leg_30.rds"=NULL, "c137_leg_31.rds"=NULL)
 
 #find the common extend
 xmin <- min(sapply(feet, function(x) x@extent@xmin))
@@ -216,10 +240,15 @@ all_s <-  calc(all, fun=sum) #sum
 all_s <- projectRaster(all_s,crs = CRS("+proj=longlat +datum=WGS84 +no_defs"))
 
 #convert into data frame to plot
-df <- as.data.frame(all_s, xy=TRUE)
+dg <- as.data.frame(all_s, xy=TRUE)
+
+df$x <- df$x-6
+
+dg2 <- dg %>% filter(layer>wsdmiscr::f_cont(df$layer, 90))
+
 
 #plot footprint
-ggplot(df)+
+ggplot(df2)+
   geom_raster(aes(x,y, fill=layer)) +
   theme_bw() +
   scale_fill_viridis(option="inferno") +
@@ -236,14 +265,6 @@ ggplot(df)+
 
 #c128
 flux$lod <- 1.17
-
-#C138
-leg_8$lod <- 0.87
-leg_12$lod <- 0.96
-leg_14$lod <- 2.02
-leg_17$lod <- 0.95
-
-fluxJ <- filter(flux2, lat > (-14.6) & lat < (-14.24) &lon > 27.61 & lon < 27.95)
 
 
 
@@ -264,7 +285,7 @@ parse_inter = function(x,gis,temp){
   }
   return(out)
 }
-ra = readRDS("sad_raster.RDS")
+ra = all_s
 happy_raster = raster::projectRaster(ra,crs = CRS("+proj=longlat +datum=WGS84 +no_defs"))
 gis = happy_raster %>%
   gissr::ra_forify() %>%
@@ -272,7 +293,7 @@ gis = happy_raster %>%
                 latitude = y)
 sf = gis %>%
   gissr::sp_from_data_frame() %>%
-  spTransform(CRS("+proj=utm +zone=35")) %>%
+  spTransform(CRS("+proj=utm +zone=36")) %>%
   st_as_sf()
 grid = st_make_grid(sf,
                     square = T,
@@ -292,7 +313,9 @@ inter_dat %>%
          latitude = round(latitude,2)) %>%
   ggplot()+
   geom_raster(aes(longitude,latitude,fill = value))+
-  scale_fill_viridis_c(option = "A")
+  scale_fill_viridis_c(option = "A")+
+  geom_point(data=flux4,aes(x=lon,y=lat),colour="white")
+
 
 
 gmap = ggmap::get_stamenmap(bbox = c(min(inter_dat$longitude),
