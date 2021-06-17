@@ -20,6 +20,7 @@ library(sp)
 library(wsdmiscr)
 library(sf)
 
+
 ###############################
 ### load and format files ### 
 
@@ -38,8 +39,6 @@ flux <-  data.frame(dm$INST$WAVE$date, dm$INST$WAVE$lat_a, dm$INST$WAVE$lon_a, d
          alt = dm.INST.REYN.d_z_m,
          BLH = dm.INST.REYN.d_z_ABL)
 flux$date <-  as.POSIXct(flux$date)
-
-C <- flux %>% filter(between(date, ymd_hms("2019/01/27 00:00:00"), ymd_hms("2019/01/31 00:00:00")))
 
 #get the legs times
 t_start <- legs$t_start
@@ -88,28 +87,22 @@ rm(legs) #tidy up
 
 
 
+
 ################################################################################
 ### flux correction for boundary layer depth ###
 
-flux <-  fluxx
-flux <-  leg_21
-rm(leg_36)
-
 #correct the flux
-flux$flux_c <-  flux$flux/(1-(flux$alt/(0.8*750)))
+flux$flux_c <-  flux$flux/(1-(flux$alt/(0.8*flux$BLH)))
 
 #calculate error
 flux$error_abs <- (flux$error_ran+flux$error_sys)*flux$flux_c/100
 
 #filtering
-flux2_C129 <- flux %>% filter(w_flag<1)
-flux2$leg <-as.numeric(gsub("leg_", "", flux2$column_label))
+flux2 <- flux %>% filter(w_flag<1)
 
 fluxJ <- filter(flux2, lat > (-14.6) & lat < (-14.24) &lon > 27.61 & lon < 27.95)
 
-flux4_C129 <- openair::timeAverage(flux2_C129, avg.time="30 sec")
-
-write.csv(flux4_C129, "G:/My Drive/eddy_new/MOYA2/plotting/C129_30s_avg.csv")
+flux4 <- openair::timeAverage(flux2, avg.time="30 sec")
 
 # plot the bad boi
 
@@ -159,6 +152,25 @@ ggplot(flux2)+
   labs(x="Time" , y="Radar height in m", title="C137")+
   guides(fill = FALSE)
 
+
+#BLH vs ALT
+
+flux2$leg <- gsub("leg_", "", flux2$column_label)
+
+
+ggplot()+
+  geom_point(data=dm, aes(x=date, y=HGT_RADR), size=1, colour="grey") +
+  geom_point(data=dm, aes( x=date, y=BLH), size=1, colour="black") +
+  geom_point(data=flux2, aes( x=date, y=alt, colour=leg), size=2) +
+  theme_bw()+
+  scale_color_viridis(discrete=TRUE)+
+  theme(plot.title = element_text(hjust = 0.5), 
+        text = element_text(size=14), 
+        legend.title = element_blank()) +
+  labs(x="Time", y="Altitude (m)")
+
+
+
 #value vs alt + corr
 ggplot(flux2)+
   geom_point(aes(x=alt,y=flux_c, colour=(flux_c-flux)*100/flux), size=2) +
@@ -166,7 +178,7 @@ ggplot(flux2)+
   scale_color_viridis(option="viridis") +
   theme(plot.title = element_text(hjust = 0.5), 
         text = element_text(size=14)) +
-  labs(x="Radar height in m", y=bquote(''~EC~(CH[4]~mg~m^-2~h^-1)*''), colour="% correction", title="C137")
+  labs(x="Altitude (m)", y=bquote(''~EC~(CH[4]~mg~m^-2~h^-1)*''), title="C137", colour="% correction")
 
 ################################################################################
 ### statistics and visualisation ###
@@ -178,10 +190,10 @@ mean(d$error_abs)/sqrt(nrow(d))
 sd(d$flux_c)
 rm(d)
 
-
+write.csv(dg2, "G:/My Drive/eddy_new/BL_corrected_for_paper_v4/C137_v10_foot_pt2.csv")
 
 #basic map
-data_map <-  flux2 %>% na.omit() #pick data 
+data_map <-  flux4 %>% na.omit() #pick data 
 bbox = c(min(data_map$lon-0.2),min(data_map$lat-0.1),max(data_map$lon+0.2),max(data_map$lat+0.1)) #pick area
 mymap = ggmap::get_stamenmap(bbox, zoom = 7) #pick zoom
 
@@ -221,33 +233,13 @@ ggplot() +
   guides(size = FALSE) 
 
 
-#leg map
-data_map <-  flux4 %>% na.omit() #pick data 
-bbox = c(min(data_map$lon-0.2),min(data_map$lat-0.1),max(data_map$lon+0.2),max(data_map$lat+0.1)) #pick area
-mymap = ggmap::get_stamenmap(bbox, zoom = 12) #pick zoom
-
-ggmap(mymap)+
-  geom_point(data = data_map, 
-             aes(x = lon,
-                 y = lat, 
-                 colour = leg),
-             size = 2) +
-  scale_color_viridis(option="inferno", #limits=c(-10,150)
-  ) +
-  labs(title=bquote(''~CH[4]~ (mg~m^-2~h^-1)*''))+
-  theme(plot.title = element_text(hjust = 0.5), 
-        text = element_text(size=14), 
-        legend.title = element_blank(), 
-        axis.title = element_blank()) +
-  guides(size = FALSE) 
-
 
 ################################################################################
 ### Footprint ###
 
 #remove unwanted legs
 #C137
-feet <-  list(dm$FOOT$c132_leg_12.rds, dm$FOOT$c132_leg_13a.rds, dm$FOOT$c132_leg_13b.rds)
+feet <-  list(dm$FOOT$c137_leg_30.rds, dm$FOOT$c137_leg_31.rds)
 feet <- feet %>% purrr::list_modify("c137_leg_18.rds"=NULL, "c137_leg_20.rds"=NULL, "c137_leg_30.rds"=NULL, "c137_leg_31.rds"=NULL)
 
 #find the common extend
@@ -265,19 +257,18 @@ all <-  stack(legs) #not sure why but otherwise doesn't work
 all_s <-  calc(all, fun=sum) #sum
 
 #convert coordinates
-all_s <- projectRaster(dm$FOOT$c129_leg_21.rds,crs = CRS("+proj=longlat +datum=WGS84 +no_defs"))
+all_s <- projectRaster(all_s,crs = CRS("+proj=longlat +datum=WGS84 +no_defs"))
 
 #convert into data frame to plot
 dg <- as.data.frame(all_s, xy=TRUE)
 
-dg2 <- dg %>% filter(layer>wsdmiscr::f_cont(dg$layer, 90))
+df$x <- df$x-6
 
-dg2$x <- dg2$x+6
+dg2 <- dg %>% filter(layer>wsdmiscr::f_cont(df$layer, 90))
 
-write.csv(dg2, "G:/My Drive/eddy_new/MOYA2/plotting/C129_foot.csv")
 
 #plot footprint
-ggplot(dg)+
+ggplot(df2)+
   geom_raster(aes(x,y, fill=layer)) +
   theme_bw() +
   scale_fill_viridis(option="inferno") +

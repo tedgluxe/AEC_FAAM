@@ -37,7 +37,7 @@ thermistor_files <- list.files("./thermistor_16Hz",pattern = ".csv") # Thermisto
 BL_ncdf <-  "G:/My Drive/eddy_new/CONGO-FAAM-various_SOUTHAFRICA-0.14-0.09_201902.nc" #1 min unified model boundary layer in m
 
 #choose flight and UTM zone
-flno <- 7
+flno <- 6
 zn <- "+proj=utm +zone=36" #UTM zones: Uganda 35, Zambia 36, Finland 35
 #bl <- 800 #boundary layer in m (see inversions in profiles & choose minimal value)
 
@@ -375,7 +375,7 @@ dm <-  dm %>% filter(d_z_m>330)
 dm <-  dm %>% filter(date>ymd_hms("2019-02-02 10:01:50"))
 
 #check for distance travelled
-range(dm$d_xy_travel)
+(range(dm$d_xy_travel)[2]-range(dm$d_xy_travel)[1])/1000
 
 #changing BL
 dm2 <- cbind(dm,
@@ -385,13 +385,26 @@ dm2 <- cbind(dm,
                                      dm$date)$y))
 dm <- subset(dm2, select=-c(d_z_ABL)) %>% dplyr::rename(d_z_ABL = BLH)
 
-
 l_exp <- T #criteria:
 if(max(diff(dm$d_xy_travel))>500){l_exp <- F} #breaks sanity check
 if(range(dm$d_xy_travel)[2]<29999){l_exp <- F}
 
+
+#adding CO2
+
+FGGA_10Hz <- subset(FGGA_10Hz, select=-c(CH4_ppb))
+dm2 <- cbind(dm,
+             sapply(names(FGGA_10Hz)[-which(names(FGGA_10Hz)=="date")],
+                    function(x)
+                      x <- approx(FGGA_10Hz$date,FGGA_10Hz[[x]],
+                                  dm$date)$y))
+dm2$FD_mole_CO2=dm2$CO2_ppm* 1e-6
+dm <- subset(dm2, select=-c(CO2_ppm))
+
+
+
 #save
-saveRDS(dm,"G:/My Drive/eddy_new/ZWAMPS/C137_Kafue/trimmed_newBL_processed/c137_leg_31.rds")
+saveRDS(dm,"G:/My Drive/eddy_new/ZWAMPS/C138_Lukanga/C138_final_processed/corrected_BL/with_CO2/c137_leg_31.rds")
 
 
 
