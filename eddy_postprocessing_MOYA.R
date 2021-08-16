@@ -26,10 +26,10 @@ library(sf)
 #load flight as 'dm' and its legs intervals as 'legs' 
 
 #extract the eddy data
-flux <-  data.frame(dm$INST$WAVE$date, dm$INST$WAVE$lat_a, dm$INST$WAVE$lon_a, dm$INST$WAVE$F_CH4_mass, dm$INST$error$ran.flux.F_CH4_mass, dm$INST$error$sys.flux.F_CH4_mass, dm$INST$itcs$ItcFlag_w_hor, dm$INST$itcs$Itc_w_hor, dm$INST$REYN$d_z_m, dm$INST$REYN$d_z_ABL) %>% 
+flux <-  data.frame(dm$INST$WAVE$date, dm$INST$WAVE$lat, dm$INST$WAVE$lon, dm$INST$WAVE$F_CH4_mass, dm$INST$error$ran.flux.F_CH4_mass, dm$INST$error$sys.flux.F_CH4_mass, dm$INST$itcs$ItcFlag_w_hor, dm$INST$itcs$Itc_w_hor, dm$INST$REYN$d_z_m, dm$INST$REYN$d_z_ABL) %>% 
   dplyr::rename(date = dm.INST.WAVE.date,
-         lat=dm.INST.WAVE.lat_a,
-         lon=dm.INST.WAVE.lon_a,
+         lat=dm.INST.WAVE.lat,
+         lon=dm.INST.WAVE.lon,
          flux=dm.INST.WAVE.F_CH4_mass,
          error_ran=dm.INST.error.ran.flux.F_CH4_mass,
          error_sys=dm.INST.error.sys.flux.F_CH4_mass,
@@ -109,7 +109,7 @@ fluxJ <- filter(flux2, lat > (-14.6) & lat < (-14.24) &lon > 27.61 & lon < 27.95
 
 flux4_C129 <- openair::timeAverage(flux2_C129, avg.time="30 sec")
 
-write.csv(flux4_C129, "G:/My Drive/eddy_new/MOYA2/plotting/C129_30s_avg.csv")
+write.csv(flux4, "G:/My Drive/eddy_new/MOYA2/plotting/C129_30s_avg_CO2.csv")
 
 # plot the bad boi
 
@@ -246,9 +246,9 @@ ggmap(mymap)+
 ### Footprint ###
 
 #remove unwanted legs
-#C137
-feet <-  list(dm$FOOT$c132_leg_12.rds, dm$FOOT$c132_leg_13a.rds, dm$FOOT$c132_leg_13b.rds)
-feet <- feet %>% purrr::list_modify("c137_leg_18.rds"=NULL, "c137_leg_20.rds"=NULL, "c137_leg_30.rds"=NULL, "c137_leg_31.rds"=NULL)
+#C138
+feet <-  list(dm$FOOT$c138_leg_12.rds, dm$FOOT$c138_leg_14.rds, dm$FOOT$c138_leg_17.rds, dm$FOOT$c138_leg_8.rds)
+#feet <- feet %>% purrr::list_modify("c137_leg_18.rds"=NULL, "c137_leg_20.rds"=NULL, "c137_leg_30.rds"=NULL, "c137_leg_31.rds"=NULL)
 
 #find the common extend
 xmin <- min(sapply(feet, function(x) x@extent@xmin))
@@ -265,16 +265,16 @@ all <-  stack(legs) #not sure why but otherwise doesn't work
 all_s <-  calc(all, fun=sum) #sum
 
 #convert coordinates
-all_s <- projectRaster(dm$FOOT$c129_leg_21.rds,crs = CRS("+proj=longlat +datum=WGS84 +no_defs"))
+all_s <- projectRaster(dm$FOOT$c128_leg_21.rds, crs = CRS("+proj=longlat +datum=WGS84 +no_defs"))
 
 #convert into data frame to plot
 dg <- as.data.frame(all_s, xy=TRUE)
 
 dg2 <- dg %>% filter(layer>wsdmiscr::f_cont(dg$layer, 90))
 
-dg2$x <- dg2$x+6
+#dg2$x <- dg2$x+6
 
-write.csv(dg2, "G:/My Drive/eddy_new/MOYA2/plotting/C129_foot.csv")
+write.csv(dg2, "G:/My Drive/eddy_new/MOYA2/plotting/C_foot.csv")
 
 #plot footprint
 ggplot(dg)+
@@ -286,6 +286,37 @@ ggplot(dg)+
         legend.title = element_blank(), 
         axis.title = element_blank()) +
   guides(size = FALSE) 
+
+
+
+################################################################################
+### Footprint size ###
+
+all <-  stack(legs) #not sure why but otherwise doesn't work
+all_s <-  calc(all, fun=sum) #sum
+
+crs(all_s) = crs("+proj=utm +zone=35 ellps=WGS84") # fix utm grid box??
+#convert coordinates
+all_s <- projectRaster(all_s,crs = CRS("+proj=longlat +datum=WGS84 +no_defs"))
+
+all_thresh = all_s
+
+all_thresh[all_thresh[] < wsdmiscr::f_cont(all_s@data@values, 90)] = NA # set all low values to NA
+
+area(all_thresh)@data@values[!is.na(all_thresh@data@values)] %>% # where is not NA, sum area of cells
+  sum()
+
+
+# Trim to box
+
+ext = extent(c(27.61,27.95,-14.6,-14.24))
+
+all_thresh_box = raster::crop(all_thresh,ext)
+
+area(all_thresh_box)@data@values[!is.na(all_thresh_box@data@values)] %>% # where is not NA, sum area of cells
+  sum()
+
+
 
 
 

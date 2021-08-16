@@ -59,7 +59,7 @@ rm(list = empty, empty, legs) #remove empty ones and tidy up
 #remove unwanted legs and add LODs
 leg_14 <- leg_45
 leg_8 <-  leg_50
-rm(leg_41, leg_45, leg_47,leg_50, leg_24, leg_27,leg_31,leg_5)
+rm(leg_21,leg_31,leg_5)
 
 
 
@@ -75,17 +75,23 @@ rm(legs) #tidy up
 ### flux correction for boundary layer depth ###
 
 #correct the flux
-flux$flux_c <-  flux$flux/(1-(flux$alt/(0.8*flux$BLH)))
+C132$flux_c <-  C132$flux/(1-(C132$alt/(0.8*C132$BLH)))
 
 #calculate error
-flux$error_abs <- (flux$error_ran+flux$error_sys)*flux$flux_c/100
+C132$error_abs <- (C132$error_ran+C132$error_sys)*abs(C132$flux_c)/100
 
 #filtering
-flux2 <- flux %>% filter(w_flag<1)
+C132 <- C132 %>% filter(w_flag<1)
 
 fluxJ <- filter(flux2, lat > (-14.6) & lat < (-14.24) &lon > 27.61 & lon < 27.95)
 
 flux4 <- openair::timeAverage(flux2, avg.time="30 sec")
+
+
+flux_C137 <- flux
+
+write.csv(flux4, "G:/My Drive/eddy_new/MOYA2/plotting/C137_30s_avg_CO2.csv")
+
 
 # plot the bad boi
 
@@ -125,15 +131,14 @@ ggplot(flux)+
   guides(fill = FALSE) 
 
 
-#alt
-ggplot(flux2)+
-  geom_point(aes(x=date,y=alt, colour=column_label), size=2) +
+#fire
+ggplot(fire3)+
+  geom_point(aes(x=CPC_CNTS,y=flux_c, colour=CO_AERO), size=2) +
   theme_bw()+
+  scale_color_viridis(option="viridis") +
   theme(plot.title = element_text(hjust = 0.5), 
-        text = element_text(size=14), 
-        legend.title = element_blank()) +
-  labs(x="Time" , y="Radar height in m", title="C137")+
-  guides(fill = FALSE)
+        text = element_text(size=14)) +
+  labs(x="CPC counts" , y=bquote(''~EC~(CO[2]~mg~m^-2~h^-1)*''), colour="CO (ppb)", title="C128, C129 and C132")
 
 #value vs alt + corr
 ggplot(flux2)+
@@ -148,7 +153,7 @@ ggplot(flux2)+
 ### statistics and visualisation ###
 
 #average & standard deviation
-d <- flux2
+d <- C132
 mean(d$flux_c)
 mean(d$error_abs)/sqrt(nrow(d))
 sd(d$flux_c)
@@ -203,8 +208,8 @@ ggplot() +
 
 #remove unwanted legs
 #C137
-feet <-  list(dm$FOOT$c137_leg_30.rds, dm$FOOT$c137_leg_31.rds)
-feet <- feet %>% purrr::list_modify("c137_leg_18.rds"=NULL, "c137_leg_20.rds"=NULL, "c137_leg_30.rds"=NULL, "c137_leg_31.rds"=NULL)
+feet <-  list(dm$FOOT$c137_leg_19.rds, dm$FOOT$c137_leg_24.rds, dm$FOOT$c137_leg_25.rds, dm$FOOT$c137_leg_27.rds,dm$FOOT$c137_leg_29.rds)
+#feet <- feet %>% purrr::list_modify("c138_leg_8.rds"=NULL, "c138_leg_17.rds"=NULL, "c138_leg_14.rds"=NULL, "c138_leg_12.rds"=NULL)
 
 #find the common extend
 xmin <- min(sapply(feet, function(x) x@extent@xmin))
@@ -228,11 +233,11 @@ dg <- as.data.frame(all_s, xy=TRUE)
 
 df$x <- df$x-6
 
-dg2 <- dg %>% filter(layer>wsdmiscr::f_cont(df$layer, 90))
+dg2 <- dg %>% filter(layer>wsdmiscr::f_cont(dg$layer, 90))
 
 
 #plot footprint
-ggplot(df2)+
+ggplot(dg2)+
   geom_raster(aes(x,y, fill=layer)) +
   theme_bw() +
   scale_fill_viridis(option="inferno") +
@@ -245,16 +250,21 @@ ggplot(df2)+
 
 
 ################################################################################
-###Other LODs###
 
-#c128
-flux$lod <- 1.17
-
+fire <- read.csv("G:/My Drive/eddy_new/MOYA2/plotting/C137_C138_cpc_co.csv")
+fire$date <- as.POSIXct(fire$date)
 
 
+fire2 <- cbind(flux_all,
+                 sapply(names(fire)[-which(names(fire)=="date")],
+                       function(x)
+                         x <- approx(fire$date,fire[[x]],
+                                     flux_all$date)$y)) 
 
 
+fire_Z <- rbind(fire2, fire8)
 
+saveRDS(fire2, "G:/My Drive/eddy_new/MOYA2/Uganda_CO2_fires.RDS")
 
 ################################################################################
 ######## PS Will's magic ######## 
