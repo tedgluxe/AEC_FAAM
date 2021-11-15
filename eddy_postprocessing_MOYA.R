@@ -99,7 +99,7 @@ rm(leg_36)
 flux$flux_c <-  flux$flux/(1-(flux$alt/(0.8*750)))
 
 #calculate error
-flux$error_abs <- (flux$error_ran+flux$error_sys)*flux$flux_c/100
+flux4$error_abs <- (flux4$error_ran+flux4$error_sys)*flux4$flux_c/100
 
 #filtering
 flux2_C129 <- flux %>% filter(w_flag<1)
@@ -107,7 +107,7 @@ flux2$leg <-as.numeric(gsub("leg_", "", flux2$column_label))
 
 fluxJ <- filter(flux2, lat > (-14.6) & lat < (-14.24) &lon > 27.61 & lon < 27.95)
 
-flux4_C129 <- openair::timeAverage(flux2_C129, avg.time="30 sec")
+flux4 <- openair::timeAverage(flux2, avg.time="100 sec")
 
 write.csv(flux4, "G:/My Drive/eddy_new/MOYA2/plotting/C129_30s_avg_CO2.csv")
 
@@ -248,7 +248,10 @@ ggmap(mymap)+
 #remove unwanted legs
 #C138
 feet <-  list(dm$FOOT$c138_leg_12.rds, dm$FOOT$c138_leg_14.rds, dm$FOOT$c138_leg_17.rds, dm$FOOT$c138_leg_8.rds)
-#feet <- feet %>% purrr::list_modify("c137_leg_18.rds"=NULL, "c137_leg_20.rds"=NULL, "c137_leg_30.rds"=NULL, "c137_leg_31.rds"=NULL)
+
+#C137
+feet <-  list(dm$FOOT$c137_leg_19.rds, dm$FOOT$c137_leg_21.rds, dm$FOOT$c137_leg_24.rds, dm$FOOT$c137_leg_25.rds, dm$FOOT$c137_leg_27.rds, dm$FOOT$c137_leg_29.rds,  dm$FOOT$c137_leg_5.rds)
+#feet <-  list(dm$FOOT$c137_leg_30.rds, dm$FOOT$c137_leg_31.rds)
 
 #find the common extend
 xmin <- min(sapply(feet, function(x) x@extent@xmin))
